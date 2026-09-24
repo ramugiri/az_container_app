@@ -16,6 +16,7 @@
 #     role assignments), Storage Blob Data Contributor on the state account
 # and prints the GitHub environment secrets/variables to set.
 set -euo pipefail
+export MSYS_NO_PATHCONV=1 # stop Git Bash rewriting /subscriptions/... scopes
 
 REPO="${1:?usage: $0 <github-owner/repo> <subscription-id> [environments]}"
 SUBSCRIPTION_ID="${2:?usage: $0 <github-owner/repo> <subscription-id> [environments]}"
@@ -63,15 +64,36 @@ fi
 SP_OBJECT_ID=$(az ad sp show --id "$CLIENT_ID" --query id -o tsv)
 
 echo "==> Federated credentials"
+# GitHub issues the OIDC subject in one of two formats depending on the repo:
+#   legacy:   repo:<owner>/<repo>:environment:<env>
+#   with IDs: repo:<owner>@<owner-id>/<repo>@<repo-id>:environment:<env>
+# Register both so either works. IDs come from the GitHub API, or set
+# GITHUB_OWNER_ID / GITHUB_REPO_ID for a private repo.
+if [ -z "${GITHUB_OWNER_ID:-}" ] || [ -z "${GITHUB_REPO_ID:-}" ]; then
+  GH_JSON=$(curl -fsS "https://api.github.com/repos/$REPO" 2>/dev/null || true)
+  GITHUB_REPO_ID=$(echo "$GH_JSON" | grep -m1 '"id":' | tr -dc '0-9')
+  GITHUB_OWNER_ID=$(echo "$GH_JSON" | sed -n '/"owner":/,/}/p' | grep -m1 '"id":' | tr -dc '0-9')
+fi
+ID_REPO=""
+if [ -n "${GITHUB_OWNER_ID:-}" ] && [ -n "${GITHUB_REPO_ID:-}" ]; then
+  ID_REPO="${REPO%%/*}@${GITHUB_OWNER_ID}/${REPO#*/}@${GITHUB_REPO_ID}"
+else
+  echo "WARN: could not look up GitHub IDs; only the legacy subject format is registered."
+fi
+
+upsert_fc() { # name subject
+  local params="{\"name\": \"$1\", \"issuer\": \"https://token.actions.githubusercontent.com\", \"subject\": \"$2\", \"audiences\": [\"api://AzureADTokenExchange\"]}"
+  if az ad app federated-credential show --id "$CLIENT_ID" --federated-credential-id "$1" -o none 2>/dev/null; then
+    az ad app federated-credential update --id "$CLIENT_ID" --federated-credential-id "$1" --parameters "$params" -o none
+  else
+    az ad app federated-credential create --id "$CLIENT_ID" --parameters "$params" -o none
+  fi
+  echo "    $1 -> $2"
+}
 for env in $ENVIRONMENTS; do
-  name="github-${env}"
-  if ! az ad app federated-credential show --id "$CLIENT_ID" --federated-credential-id "$name" -o none 2>/dev/null; then
-    az ad app federated-credential create --id "$CLIENT_ID" --parameters "{
-      \"name\": \"$name\",
-      \"issuer\": \"https://token.actions.githubusercontent.com\",
-      \"subject\": \"repo:${REPO}:environment:${env}\",
-      \"audiences\": [\"api://AzureADTokenExchange\"]
-    }" -o none
+  upsert_fc "github-${env}" "repo:${REPO}:environment:${env}"
+  if [ -n "$ID_REPO" ]; then
+    upsert_fc "github-${env}-ids" "repo:${ID_REPO}:environment:${env}"
   fi
 done
 
