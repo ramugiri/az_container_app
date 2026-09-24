@@ -1,0 +1,133 @@
+name: mcm-infra
+
+# PRs and pushes run a plan against dev.
+# Deploys are manual: Actions -> mcm-infra -> Run workflow -> pick env, tick "apply".
+# (The "Run workflow" button only appears once this file is on the default branch.)
+
+on:
+  push:
+    branches: [main, "feature/**"]
+    paths: ["**.tf", "**.tfvars", ".github/workflows/mcm-infra.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["**.tf", "**.tfvars", ".github/workflows/mcm-infra.yml"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        options: [dev, uat, prd]
+        required: true
+      apply:
+        description: "Run terraform apply (otherwise plan only)"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write # OIDC to Azure (provider and state backend)
+  contents: read
+
+concurrency:
+  group: mcm-infra-${{ github.event.inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  terraform:
+    name: terraform (${{ github.event.inputs.environment || 'dev' }})
+    runs-on: ubuntu-latest
+    # Secrets and variables below are scoped to this GitHub environment.
+    # Add required reviewers on "prd" to gate production applies.
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    env:
+      TF_ENV: ${{ github.event.inputs.environment || 'dev' }}
+      TF_IN_AUTOMATION: "true"
+      ARM_USE_OIDC: "true"
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resolve environment settings
+        id: vars
+        shell: bash
+        run: |
+          if [ "$TF_ENV" = "prd" ]; then
+            echo "file=prod.tfvars" >> "$GITHUB_OUTPUT"
+          else
+            echo "file=non-prod.tfvars" >> "$GITHUB_OUTPUT"
+          fi
+          # Names must match locals.tf
+          echo "rg=rg-mcm-${TF_ENV}-canadacentral-001" >> "$GITHUB_OUTPUT"
+          echo "kv=kv-mcm-${TF_ENV}-01" >> "$GITHUB_OUTPUT"
+          echo "ip=$(curl -fsS https://api.ipify.org)" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${{ vars.TFSTATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TFSTATE_CONTAINER || 'tfstate' }}" \
+            -backend-config="key=mcm-${TF_ENV}.tfstate"
+
+      - name: Terraform validate
+        run: terraform validate
+
+      # Key Vault is private-only. Terraform reads and writes its secrets, so let this
+      # runner's IP through the vault firewall for the duration of the run.
+      - name: Open Key Vault firewall to runner
+        shell: bash
+        run: |
+          KV="${{ steps.vars.outputs.kv }}"; RG="${{ steps.vars.outputs.rg }}"; IP="${{ steps.vars.outputs.ip }}"
+          if az keyvault show -n "$KV" -g "$RG" -o none 2>/dev/null; then
+            az keyvault update -n "$KV" -g "$RG" --public-network-access Enabled --default-action Deny --bypass AzureServices -o none
+            az keyvault network-rule add -n "$KV" -g "$RG" --ip-address "$IP/32" -o none
+            echo "Waiting for the firewall change to propagate..."
+            sleep 45
+          else
+            echo "Key Vault $KV does not exist yet; Terraform will create it open to $IP."
+          fi
+
+      - name: Terraform plan
+        run: |
+          terraform plan -input=false \
+            -var-file="${{ steps.vars.outputs.file }}" \
+            -var "environment=${TF_ENV}" \
+            -var "subscription_id=${ARM_SUBSCRIPTION_ID}" \
+            -var 'deployer_ip_allowlist=["${{ steps.vars.outputs.ip }}/32"]' \
+            -out=tfplan
+
+      - name: Terraform apply
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.apply == 'true'
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Show outputs
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.apply == 'true'
+        run: terraform output
+
+      - name: Close Key Vault firewall
+        if: always()
+        shell: bash
+        run: |
+          KV="${{ steps.vars.outputs.kv }}"; RG="${{ steps.vars.outputs.rg }}"; IP="${{ steps.vars.outputs.ip }}"
+          if [ -n "$KV" ] && az keyvault show -n "$KV" -g "$RG" -o none 2>/dev/null; then
+            az keyvault network-rule remove -n "$KV" -g "$RG" --ip-address "$IP/32" -o none || true
+            az keyvault update -n "$KV" -g "$RG" --public-network-access Disabled -o none
+          fi
