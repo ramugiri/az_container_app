@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-time setup so the mcm-infra GitHub Actions workflow can deploy to Azure.
-# Run from Git Bash / Azure Cloud Shell with az CLI logged in as a user who can
-# create app registrations and assign roles (Owner on the subscription).
+# Run from Azure Cloud Shell (bash) or anywhere with az CLI logged in as a user who
+# can create app registrations and assign roles (Owner on the subscription).
 #
 #   ./scripts/bootstrap-azure.sh <github-owner/repo> <subscription-id> [environments]
 #
@@ -16,7 +16,6 @@
 #     role assignments), Storage Blob Data Contributor on the state account
 # and prints the GitHub environment secrets/variables to set.
 set -euo pipefail
-export MSYS_NO_PATHCONV=1 # stop Git Bash rewriting /subscriptions/... scopes
 
 REPO="${1:?usage: $0 <github-owner/repo> <subscription-id> [environments]}"
 SUBSCRIPTION_ID="${2:?usage: $0 <github-owner/repo> <subscription-id> [environments]}"
@@ -99,4 +98,17 @@ and add to EACH environment:
     TFSTATE_RESOURCE_GROUP  = $STATE_RG
     TFSTATE_STORAGE_ACCOUNT = $STATE_SA
     TFSTATE_CONTAINER       = $STATE_CONTAINER
+
+With the GitHub CLI (gh auth login first):
 EOF
+for env in $ENVIRONMENTS; do
+  cat <<EOF
+  gh api -X PUT repos/$REPO/environments/$env >/dev/null
+  gh secret set AZURE_CLIENT_ID       -R $REPO -e $env -b $CLIENT_ID
+  gh secret set AZURE_TENANT_ID       -R $REPO -e $env -b $TENANT_ID
+  gh secret set AZURE_SUBSCRIPTION_ID -R $REPO -e $env -b $SUBSCRIPTION_ID
+  gh variable set TFSTATE_RESOURCE_GROUP  -R $REPO -e $env -b $STATE_RG
+  gh variable set TFSTATE_STORAGE_ACCOUNT -R $REPO -e $env -b $STATE_SA
+  gh variable set TFSTATE_CONTAINER       -R $REPO -e $env -b $STATE_CONTAINER
+EOF
+done

@@ -1,12 +1,11 @@
 name: mcm-infra
 
-# PRs and pushes run a plan against dev.
+# PRs and pushes to main run a plan against dev.
 # Deploys are manual: Actions -> mcm-infra -> Run workflow -> pick env, tick "apply".
-# (The "Run workflow" button only appears once this file is on the default branch.)
 
 on:
   push:
-    branches: [main, "feature/**"]
+    branches: [main]
     paths: ["**.tf", "**.tfvars", ".github/workflows/mcm-infra.yml"]
   pull_request:
     branches: [main]
