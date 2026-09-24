@@ -1,7 +1,7 @@
 # Dev and UAT share this file. For UAT:
 #   terraform apply -var-file=non-prod.tfvars -var environment=uat
 
-subscription_id = "00000000-0000-0000-0000-000000000000" # TODO: non-prod subscription ID
+subscription_id = "288d2733-a09f-491f-93f0-02c33ffc7357" # TODO: non-prod subscription ID
 environment     = "dev"
 location        = "canadacentral"
 
