@@ -231,3 +231,9 @@ variable "key_vault_names" {
   type        = map(string)
   default     = {}
 }
+
+variable "real_image_apps" {
+  description = "Per-environment list of apps (frontend, service, sync_job) whose image has been pushed to ACR, so they run it instead of the placeholder. e.g. { dev = [\"frontend\"] }"
+  type        = map(list(string))
+  default     = {}
+}

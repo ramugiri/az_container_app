@@ -58,7 +58,7 @@ resource "azurerm_container_app" "frontend" {
       }
 
       dynamic "liveness_probe" {
-        for_each = local.placeholder ? [] : [1]
+        for_each = local.placeholder.frontend ? [] : [1]
         content {
           transport = "HTTP"
           port      = local.ports.frontend
@@ -74,6 +74,16 @@ resource "azurerm_container_app" "frontend" {
   }
 
   depends_on = [azurerm_role_assignment.app_acr_pull]
+
+  # The image tag is owned by the app pipeline (ramugiri/az_container_application_repo),
+  # which deploys each commit with az containerapp update. Terraform only sets the
+  # initial image.
+  lifecycle {
+    ignore_changes = [
+      template[0].container[0].image,
+      template[0].revision_suffix,
+    ]
+  }
 }
 
 resource "azurerm_container_app" "service" {
@@ -165,7 +175,7 @@ resource "azurerm_container_app" "service" {
       }
 
       dynamic "liveness_probe" {
-        for_each = local.placeholder ? [] : [1]
+        for_each = local.placeholder.service ? [] : [1]
         content {
           transport = "HTTP"
           port      = local.ports.service
