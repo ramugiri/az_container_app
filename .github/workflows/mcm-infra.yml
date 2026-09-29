@@ -125,8 +125,10 @@ jobs:
         if: always()
         shell: bash
         run: |
-          KV="${{ steps.vars.outputs.kv }}"; RG="${{ steps.vars.outputs.rg }}"; IP="${{ steps.vars.outputs.ip }}"
-          if [ -n "$KV" ] && az keyvault show -n "$KV" -g "$RG" -o none 2>/dev/null; then
+          RG="${{ steps.vars.outputs.rg }}"; IP="${{ steps.vars.outputs.ip }}"
+          # Look the vault up again: it may have been created during this run.
+          KV=$(az keyvault list -g "$RG" --query "[0].name" -o tsv 2>/dev/null || true)
+          if [ -n "$KV" ]; then
             az keyvault network-rule remove -n "$KV" -g "$RG" --ip-address "$IP/32" -o none || true
             az keyvault update -n "$KV" -g "$RG" --public-network-access Disabled -o none
           fi
