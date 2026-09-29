@@ -17,6 +17,9 @@ appgw_subnet_prefix = null
 
 create_private_dns_zones = true
 
+# kv-mcm-dev-01 was deleted and is held by purge protection until 2026-10-24.
+key_vault_names = { dev = "kv-mcm-dev-02" }
+
 psql_sku_name          = "B_Standard_B2ms" # burstable is fine for non-prod
 psql_storage_mb        = 65536
 psql_version           = "16"

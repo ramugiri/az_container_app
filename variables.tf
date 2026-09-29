@@ -225,3 +225,9 @@ variable "use_placeholder_images" {
   type        = bool
   default     = true
 }
+
+variable "key_vault_names" {
+  description = "Per-environment Key Vault name overrides, e.g. { dev = \"kv-mcm-dev-02\" }. Needed when a deleted vault name is still held by soft delete + purge protection."
+  type        = map(string)
+  default     = {}
+}

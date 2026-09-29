@@ -72,7 +72,7 @@ jobs:
           fi
           # Names must match locals.tf
           echo "rg=rg-mcm-${TF_ENV}-canadacentral-001" >> "$GITHUB_OUTPUT"
-          echo "kv=kv-mcm-${TF_ENV}-01" >> "$GITHUB_OUTPUT"
+          echo "kv=$(az keyvault list -g "rg-mcm-${TF_ENV}-canadacentral-001" --query "[0].name" -o tsv 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
           echo "ip=$(curl -fsS https://api.ipify.org)" >> "$GITHUB_OUTPUT"
 
       - name: Terraform fmt check
@@ -95,13 +95,13 @@ jobs:
         shell: bash
         run: |
           KV="${{ steps.vars.outputs.kv }}"; RG="${{ steps.vars.outputs.rg }}"; IP="${{ steps.vars.outputs.ip }}"
-          if az keyvault show -n "$KV" -g "$RG" -o none 2>/dev/null; then
+          if [ -n "$KV" ] && az keyvault show -n "$KV" -g "$RG" -o none 2>/dev/null; then
             az keyvault update -n "$KV" -g "$RG" --public-network-access Enabled --default-action Deny --bypass AzureServices -o none
             az keyvault network-rule add -n "$KV" -g "$RG" --ip-address "$IP/32" -o none
             echo "Waiting for the firewall change to propagate..."
             sleep 45
           else
-            echo "Key Vault $KV does not exist yet; Terraform will create it open to $IP."
+            echo "No Key Vault in $RG yet; Terraform will create it open to $IP."
           fi
 
       - name: Terraform plan
