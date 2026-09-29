@@ -23,7 +23,7 @@ locals {
     log_analytics  = "log-${local.prefix}-01"
     app_insights   = "appi-${local.prefix}-01"
     action_group   = "ag-${local.prefix}-as3"
-    key_vault      = "kv-${local.prefix}-01"
+    key_vault      = lookup(var.key_vault_names, var.environment, "kv-${local.prefix}-01")
     storage        = "st${local.app}${var.environment}conobs01"
     psql_server    = "psql-${local.prefix}-01"
     aca_env        = "cae-${local.prefix}-01"
