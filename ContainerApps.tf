@@ -53,8 +53,10 @@ resource "azurerm_container_app" "frontend" {
         value = azurerm_application_insights.mcm.connection_string
       }
       env {
-        name  = "SERVICE_BASE_URL"
-        value = "https://${local.names.aca_service}"
+        name = "SERVICE_BASE_URL"
+        # Full FQDN: resolves via the environment's private DNS zone to the ILB, and
+        # matches the environment certificate (the bare app name does not).
+        value = "https://${local.names.aca_service}.${azurerm_container_app_environment.mcm.default_domain}"
       }
 
       dynamic "liveness_probe" {
@@ -200,4 +202,12 @@ resource "azurerm_container_app" "service" {
     azurerm_role_assignment.app_acr_pull,
     azurerm_role_assignment.app_kv_secrets,
   ]
+
+  # Image tag owned by the service pipeline in az_container_application_repo.
+  lifecycle {
+    ignore_changes = [
+      template[0].container[0].image,
+      template[0].revision_suffix,
+    ]
+  }
 }
