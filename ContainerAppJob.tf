@@ -37,7 +37,7 @@ resource "azurerm_container_app_job" "sync" {
     container {
       name    = "sync"
       image   = local.images.sync_job
-      command = local.placeholder ? null : var.sync_job_command
+      command = local.placeholder.sync_job ? null : var.sync_job_command
       cpu     = 0.5
       memory  = "1Gi"
 

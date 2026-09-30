@@ -38,15 +38,21 @@ locals {
 
   # Placeholder images let the first apply succeed before the app images exist in ACR.
   # The quickstart images listen on port 80 and have no /health endpoint.
-  placeholder = var.use_placeholder_images
+  # Apps listed in real_image_apps for this environment use their ACR image even while
+  # use_placeholder_images is on, so each app can go live once its pipeline has pushed.
+  real_image_apps = lookup(var.real_image_apps, var.environment, [])
+  placeholder = {
+    for app in ["frontend", "service", "sync_job"] :
+    app => var.use_placeholder_images && !contains(local.real_image_apps, app)
+  }
   images = {
-    frontend = local.placeholder ? "mcr.microsoft.com/k8se/quickstart:latest" : "${local.acr_login_server}/${var.frontend_image}"
-    service  = local.placeholder ? "mcr.microsoft.com/k8se/quickstart:latest" : "${local.acr_login_server}/${var.service_image}"
-    sync_job = local.placeholder ? "mcr.microsoft.com/k8se/quickstart-jobs:latest" : "${local.acr_login_server}/${var.sync_job_image}"
+    frontend = local.placeholder.frontend ? "mcr.microsoft.com/k8se/quickstart:latest" : "${local.acr_login_server}/${var.frontend_image}"
+    service  = local.placeholder.service ? "mcr.microsoft.com/k8se/quickstart:latest" : "${local.acr_login_server}/${var.service_image}"
+    sync_job = local.placeholder.sync_job ? "mcr.microsoft.com/k8se/quickstart-jobs:latest" : "${local.acr_login_server}/${var.sync_job_image}"
   }
   ports = {
-    frontend = local.placeholder ? 80 : 8080
-    service  = local.placeholder ? 80 : 3000
+    frontend = local.placeholder.frontend ? 80 : 8080
+    service  = local.placeholder.service ? 80 : 3000
   }
 
   # privatelink zones: created locally or supplied by the platform team
