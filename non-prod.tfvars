@@ -21,7 +21,7 @@ create_private_dns_zones = true
 key_vault_names = { dev = "kv-mcm-dev-02" }
 
 # Apps whose image the app pipeline has pushed to ACR (the rest run placeholders).
-real_image_apps = { dev = ["frontend"] }
+real_image_apps = { dev = ["frontend", "service"] }
 
 psql_sku_name          = "B_Standard_B2ms" # burstable is fine for non-prod
 psql_storage_mb        = 65536
